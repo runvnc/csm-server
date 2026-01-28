@@ -1,4 +1,4 @@
-\"\"\"
+"""
 CSM (Conversational Speech Model) WebSocket Server
 
 Streaming TTS server that maintains conversation context with user audio.
@@ -9,7 +9,7 @@ Protocol:
 - On user turn end, client sends text transcription
 - On generate request, server runs CSM with full audio context
 - Server streams generated audio back as ulaw 8kHz chunks
-\"\"\"
+"""
 
 import asyncio
 import base64
@@ -46,7 +46,7 @@ generator: Optional[Generator] = None
 
 
 class Session:
-    \"\"\"Manages state for a single conversation session.\"\"\"
+    """Manages state for a single conversation session."""
     
     def __init__(self, session_id: str):
         self.session_id = session_id
@@ -60,20 +60,20 @@ class Session:
         self.created_at = time.time()
         
     def add_audio_chunk(self, ulaw_bytes: bytes):
-        \"\"\"Buffer incoming audio chunk from user.\"\"\"
+        """Buffer incoming audio chunk from user."""
         self.audio_buffer.append(ulaw_bytes)
         
     def finalize_user_turn(self, text: str):
-        \"\"\"Convert buffered audio to segment, add to context.\"\"\"
+        """Convert buffered audio to segment, add to context."""
         if not self.audio_buffer:
-            logger.warning(f\"Session {self.session_id}: No audio buffered for user turn\")
+            logger.warning(f"Session {self.session_id}: No audio buffered for user turn")
             return
             
         # Combine all buffered audio
         all_audio = b''.join(self.audio_buffer)
         self.audio_buffer = []
         
-        logger.info(f\"Session {self.session_id}: Finalizing user turn with {len(all_audio)} bytes, text: {text[:50]}...\")
+        logger.info(f"Session {self.session_id}: Finalizing user turn with {len(all_audio)} bytes, text: {text[:50]}...")
         
         # Convert ulaw 8kHz → float 24kHz
         audio_tensor = ulaw_8k_to_float_24k(all_audio)
@@ -90,15 +90,15 @@ class Session:
         self._trim_context()
         
     async def generate(self, text: str, websocket: WebSocket):
-        \"\"\"Generate AI response and stream audio back.\"\"\"
+        """Generate AI response and stream audio back."""
         global generator
         
         if generator is None:
-            await websocket.send_json({\"type\": \"error\", \"message\": \"Generator not loaded\"})
+            await websocket.send_json({"type": "error", "message": "Generator not loaded"})
             return
             
         self.generating = True
-        logger.info(f\"Session {self.session_id}: Generating response for: {text[:50]}...\")
+        logger.info(f"Session {self.session_id}: Generating response for: {text[:50]}...")
         
         try:
             context = self.reference_segments + self.context_segments
@@ -119,12 +119,12 @@ class Session:
                 topk=50
             ):
                 if not self.generating:  # Interrupted
-                    logger.info(f\"Session {self.session_id}: Generation interrupted\")
+                    logger.info(f"Session {self.session_id}: Generation interrupted")
                     break
                 
                 if first_chunk_time is None:
                     first_chunk_time = time.time()
-                    logger.info(f\"Session {self.session_id}: First chunk latency: {(first_chunk_time - gen_start)*1000:.1f}ms\")
+                    logger.info(f"Session {self.session_id}: First chunk latency: {(first_chunk_time - gen_start)*1000:.1f}ms")
                     
                 all_audio_chunks.append(chunk)
                 
@@ -136,11 +136,11 @@ class Session:
                     frame = ulaw_bytes[i:i+160]
                     if len(frame) < 160:
                         # Pad last frame if needed
-                        frame = frame + b'\\xff' * (160 - len(frame))
+                        frame = frame + b'xff' * (160 - len(frame))
                     
                     await websocket.send_json({
-                        \"type\": \"audio\",
-                        \"data\": base64.b64encode(frame).decode()
+                        "type": "audio",
+                        "data": base64.b64encode(frame).decode()
                     })
                     chunk_count += 1
                     
@@ -156,29 +156,29 @@ class Session:
                 self._trim_context()
                 
             gen_time = time.time() - gen_start
-            logger.info(f\"Session {self.session_id}: Generation complete in {gen_time:.2f}s, {chunk_count} frames sent\")
+            logger.info(f"Session {self.session_id}: Generation complete in {gen_time:.2f}s, {chunk_count} frames sent")
             
-            await websocket.send_json({\"type\": \"done\"})
+            await websocket.send_json({"type": "done"})
             
         except Exception as e:
-            logger.error(f\"Session {self.session_id}: Generation error: {e}\")
-            await websocket.send_json({\"type\": \"error\", \"message\": str(e)})
+            logger.error(f"Session {self.session_id}: Generation error: {e}")
+            await websocket.send_json({"type": "error", "message": str(e)})
             
         finally:
             self.generating = False
             
     def interrupt(self):
-        \"\"\"Stop generation and clear audio buffer.\"\"\"
-        logger.info(f\"Session {self.session_id}: Interrupted\")
+        """Stop generation and clear audio buffer."""
+        logger.info(f"Session {self.session_id}: Interrupted")
         self.generating = False
         self.audio_buffer = []
         
     def _trim_context(self, max_segments: int = 8):
-        \"\"\"Keep context within limits.\"\"\"
+        """Keep context within limits."""
         if len(self.context_segments) > max_segments:
             removed = len(self.context_segments) - max_segments
             self.context_segments = self.context_segments[-max_segments:]
-            logger.info(f\"Session {self.session_id}: Trimmed {removed} old segments from context\")
+            logger.info(f"Session {self.session_id}: Trimmed {removed} old segments from context")
 
 
 # Session storage
@@ -186,7 +186,7 @@ sessions: Dict[str, Session] = {}
 
 
 def ulaw_8k_to_float_24k(ulaw_bytes: bytes) -> torch.Tensor:
-    \"\"\"Convert ulaw 8kHz to float32 24kHz tensor.\"\"\"
+    """Convert ulaw 8kHz to float32 24kHz tensor."""
     # ulaw → PCM 16-bit
     pcm_bytes = audioop.ulaw2lin(ulaw_bytes, 2)
     
@@ -201,7 +201,7 @@ def ulaw_8k_to_float_24k(ulaw_bytes: bytes) -> torch.Tensor:
 
 
 def float_24k_to_ulaw_8k(audio_tensor: torch.Tensor) -> bytes:
-    \"\"\"Convert float32 24kHz tensor to ulaw 8kHz bytes.\"\"\"
+    """Convert float32 24kHz tensor to ulaw 8kHz bytes."""
     # Ensure on CPU
     if audio_tensor.device.type != 'cpu':
         audio_tensor = audio_tensor.cpu()
@@ -223,11 +223,11 @@ def float_24k_to_ulaw_8k(audio_tensor: torch.Tensor) -> bytes:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    \"\"\"Load model on startup.\"\"\"
+    """Load model on startup."""
     global generator
     
-    logger.info(f\"Loading CSM model from {CSM_MODEL_PATH}...\")
-    logger.info(f\"Device: {CSM_DEVICE}, Codebooks: {CSM_CODEBOOKS}\")
+    logger.info(f"Loading CSM model from {CSM_MODEL_PATH}...")
+    logger.info(f"Device: {CSM_DEVICE}, Codebooks: {CSM_CODEBOOKS}")
     
     try:
         generator = load_csm_1b_local(
@@ -235,34 +235,34 @@ async def lifespan(app: FastAPI):
             device=CSM_DEVICE,
             audio_num_codebooks=CSM_CODEBOOKS
         )
-        logger.info(\"CSM model loaded successfully\")
+        logger.info("CSM model loaded successfully")
     except Exception as e:
-        logger.error(f\"Failed to load CSM model: {e}\")
+        logger.error(f"Failed to load CSM model: {e}")
         raise
     
     yield
     
     # Cleanup
-    logger.info(\"Shutting down CSM server\")
+    logger.info("Shutting down CSM server")
     sessions.clear()
 
 
 app = FastAPI(lifespan=lifespan)
 
 
-@app.get(\"/health\")
+@app.get("/health")
 async def health():
-    \"\"\"Health check endpoint.\"\"\"
+    """Health check endpoint."""
     return {
-        \"status\": \"ok\",
-        \"model_loaded\": generator is not None,
-        \"active_sessions\": len(sessions)
+        "status": "ok",
+        "model_loaded": generator is not None,
+        "active_sessions": len(sessions)
     }
 
 
-@app.websocket(\"/ws\")
+@app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    \"\"\"Main WebSocket endpoint for TTS sessions.\"\"\"
+    """Main WebSocket endpoint for TTS sessions."""
     await websocket.accept()
     session: Optional[Session] = None
     
@@ -272,7 +272,7 @@ async def websocket_endpoint(websocket: WebSocket):
             msg_type = data.get('type')
             
             if msg_type == 'init':
-                session_id = data.get('session_id', f\"session_{time.time()}\")
+                session_id = data.get('session_id', f"session_{time.time()}")
                 session = Session(session_id)
                 sessions[session_id] = session
                 
@@ -285,12 +285,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         text=data.get('ref_text', ''),
                         audio=ref_tensor
                     ))
-                    logger.info(f\"Session {session_id}: Loaded reference audio ({len(ref_audio)} bytes)\")
+                    logger.info(f"Session {session_id}: Loaded reference audio ({len(ref_audio)} bytes)")
                     
                 session.speaker_id = data.get('speaker_id', 0)
-                logger.info(f\"Session {session_id}: Initialized\")
+                logger.info(f"Session {session_id}: Initialized")
                 
-                await websocket.send_json({\"type\": \"ready\", \"session_id\": session_id})
+                await websocket.send_json({"type": "ready", "session_id": session_id})
                 
             elif msg_type == 'audio':
                 if session:
@@ -300,7 +300,7 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg_type == 'user_turn_end':
                 if session:
                     session.finalize_user_turn(data.get('text', ''))
-                    await websocket.send_json({\"type\": \"user_turn_processed\"})
+                    await websocket.send_json({"type": "user_turn_processed"})
                     
             elif msg_type == 'generate':
                 if session:
@@ -309,18 +309,18 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg_type == 'interrupt':
                 if session:
                     session.interrupt()
-                    await websocket.send_json({\"type\": \"interrupted\"})
+                    await websocket.send_json({"type": "interrupted"})
                     
             elif msg_type == 'close':
                 if session:
                     del sessions[session.session_id]
-                    logger.info(f\"Session {session.session_id}: Closed\")
+                    logger.info(f"Session {session.session_id}: Closed")
                 break
                 
     except WebSocketDisconnect:
-        logger.info(f\"WebSocket disconnected\")
+        logger.info(f"WebSocket disconnected")
     except Exception as e:
-        logger.error(f\"WebSocket error: {e}\")
+        logger.error(f"WebSocket error: {e}")
     finally:
         if session and session.session_id in sessions:
             del sessions[session.session_id]
@@ -330,6 +330,6 @@ async def websocket_endpoint(websocket: WebSocket):
             pass
 
 
-if __name__ == \"__main__\":
+if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=\"0.0.0.0\", port=CSM_PORT)
+    uvicorn.run(app, host="0.0.0.0", port=CSM_PORT)
