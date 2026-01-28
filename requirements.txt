@@ -3,4 +3,6 @@ uvicorn[standard]>=0.22.0
 websockets>=11.0
 torch>=2.0.0
 torchaudio>=2.0.0
+torchtune
+tochao
 numpy
