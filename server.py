@@ -116,8 +116,8 @@ class Session:
                 speaker=self.speaker_id,
                 context=context,
                 max_audio_length_ms=30000,
-                temperature=0.7,
-                topk=50
+                temperature=0.3, #0.7,
+                #topk=50
             ):
                 if not self.generating:  # Interrupted
                     logger.info(f"Session {self.session_id}: Generation interrupted")
@@ -144,9 +144,8 @@ class Session:
                         "data": base64.b64encode(frame).decode()
                     })
                     chunk_count += 1
+                    await asyncio.sleep(0.001)
                     
-                # Yield to event loop to flush WebSocket buffer
-                await asyncio.sleep(0)
                     
             # Add AI response to context
             if all_audio_chunks and self.generating:
