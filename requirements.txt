@@ -6,3 +6,5 @@ torchaudio>=2.0.0
 torchtune
 tochao
 numpy
+moshi
+
