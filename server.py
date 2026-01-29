@@ -116,8 +116,8 @@ class Session:
                 speaker=self.speaker_id,
                 context=context,
                 max_audio_length_ms=30000,
-                temperature=0.3, #0.7,
-                #topk=50
+                temperature=0.7,
+                topk=50
             ):
                 if not self.generating:  # Interrupted
                     logger.info(f"Session {self.session_id}: Generation interrupted")
