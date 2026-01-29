@@ -2,7 +2,6 @@
 CSM (Conversational Speech Model) WebSocket Server
 
 Streaming TTS server that maintains conversation context with user audio.
-Streaming TTS server that maintains conversation context with user audio.
 Designed for real-time phone conversations with zero upload latency.
 
 Protocol:
@@ -266,15 +265,8 @@ async def health():
 async def websocket_endpoint(websocket: WebSocket):
     """Main WebSocket endpoint for TTS sessions."""
     await websocket.accept()
-    
-    # Disable Nagle's algorithm for lower latency
-    try:
-        sock = websocket.scope.get('transport').get_extra_info('socket')
-        if sock:
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            logger.info("TCP_NODELAY enabled on WebSocket")
-    except Exception as e:
-        logger.warning(f"Could not set TCP_NODELAY: {e}")
+    # Note: TCP_NODELAY would need to be set at uvicorn level
+    # For now, relying on small message sizes and immediate sends
     session: Optional[Session] = None
     
     try:
