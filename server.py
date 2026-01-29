@@ -145,6 +145,9 @@ class Session:
                     })
                     chunk_count += 1
                     
+                # Yield to event loop to flush WebSocket buffer
+                await asyncio.sleep(0)
+                    
             # Add AI response to context
             if all_audio_chunks and self.generating:
                 full_audio = torch.cat(all_audio_chunks)
