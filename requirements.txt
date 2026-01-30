@@ -4,7 +4,7 @@ websockets>=11.0
 torch>=2.0.0
 torchaudio>=2.0.0
 torchtune
-tochao
+torchao
 numpy
 moshi
 
