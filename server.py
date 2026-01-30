@@ -8,7 +8,7 @@ Protocol:
 - Client streams audio continuously (parallel to STT)
 - On user turn end, client sends text transcription
 - On generate request, server runs CSM with full audio context
-- Server streams generated audio back as ulaw 8kHz chunks
+- Server streams generated audio back as ulaw 8kHz chunks (optionally batched)
 """
 
 import asyncio
@@ -41,6 +41,16 @@ CSM_MODEL_PATH = os.environ.get('CSM_MODEL_PATH', '/files/csm-streaming')
 CSM_DEVICE = os.environ.get('CSM_DEVICE', 'cuda')
 CSM_PORT = int(os.environ.get('CSM_PORT', '8765'))
 CSM_CODEBOOKS = int(os.environ.get('CSM_CODEBOOKS', '32'))
+
+# WebSocket audio chunking / batching
+# A "frame" is 160 bytes = 20ms at 8kHz ulaw.
+CSM_WS_FRAME_BYTES = int(os.environ.get('CSM_WS_FRAME_BYTES', '160'))
+CSM_WS_FRAME_MS = int(os.environ.get('CSM_WS_FRAME_MS', '20'))
+
+# Batch up to ~100ms by default (i.e., 5 frames at 20ms/frame).
+CSM_WS_BATCH_MS = int(os.environ.get('CSM_WS_BATCH_MS', '100'))
+CSM_WS_BATCH_FRAMES_DEFAULT = max(1, (CSM_WS_BATCH_MS + CSM_WS_FRAME_MS - 1) // CSM_WS_FRAME_MS)
+CSM_WS_BATCH_FRAMES = max(1, int(os.environ.get('CSM_WS_BATCH_FRAMES', str(CSM_WS_BATCH_FRAMES_DEFAULT))))
 
 # Global generator (loaded once on startup)
 generator: Optional[Generator] = None
@@ -109,7 +119,28 @@ class Session:
             
             gen_start = time.time()
             first_chunk_time = None
-            chunk_count = 0
+            frame_count = 0
+            message_count = 0
+            max_batch_bytes = CSM_WS_BATCH_FRAMES * CSM_WS_FRAME_BYTES
+
+            batch_buf = bytearray()
+            batch_started_at: Optional[float] = None
+
+            async def flush_batch():
+                nonlocal batch_buf, batch_started_at, message_count
+                if not batch_buf:
+                    return
+                await websocket.send_json({
+                    "type": "audio",
+                    "data": base64.b64encode(bytes(batch_buf)).decode(),
+                    "frame_bytes": CSM_WS_FRAME_BYTES
+                })
+                message_count += 1
+                batch_buf = bytearray()
+                batch_started_at = None
+                # Yield to event loop (avoid starving)
+                await asyncio.sleep(0)
+
             
             for chunk in generator.generate_stream(
                 text=text,
@@ -132,19 +163,29 @@ class Session:
                 # Convert 24kHz float → ulaw 8kHz
                 ulaw_bytes = float_24k_to_ulaw_8k(chunk)
                 
-                # Send in 160-byte frames (20ms at 8kHz)
-                for i in range(0, len(ulaw_bytes), 160):
-                    frame = ulaw_bytes[i:i+160]
-                    if len(frame) < 160:
+                # Frame into CSM_WS_FRAME_BYTES and batch up to ~CSM_WS_BATCH_MS (default 100ms).
+                for i in range(0, len(ulaw_bytes), CSM_WS_FRAME_BYTES):
+                    frame = ulaw_bytes[i:i+CSM_WS_FRAME_BYTES]
+                    if len(frame) < CSM_WS_FRAME_BYTES:
                         # Pad last frame if needed
-                        frame = frame + b'xff' * (160 - len(frame))
-                    
-                    await websocket.send_json({
-                        "type": "audio",
-                        "data": base64.b64encode(frame).decode()
-                    })
-                    chunk_count += 1
-                    await asyncio.sleep(0.001)
+                        frame = frame + b'xff' * (CSM_WS_FRAME_BYTES - len(frame))
+
+                    if batch_started_at is None:
+                        batch_started_at = time.time()
+
+                    batch_buf.extend(frame)
+                    frame_count += 1
+
+                    now = time.time()
+                    # Flush when we've reached target batch size OR we've held a batch for ~CSM_WS_BATCH_MS.
+                    if len(batch_buf) >= max_batch_bytes:
+                        await flush_batch()
+                    elif batch_started_at is not None and (now - batch_started_at) * 1000.0 >= CSM_WS_BATCH_MS:
+                        await flush_batch()
+
+            # Flush any remainder (even if it's less than a full batch)
+            await flush_batch()
+
                     
                     
             # Add AI response to context
@@ -159,7 +200,7 @@ class Session:
                 self._trim_context()
                 
             gen_time = time.time() - gen_start
-            logger.info(f"Session {self.session_id}: Generation complete in {gen_time:.2f}s, {chunk_count} frames sent")
+            logger.info(f"Session {self.session_id}: Generation complete in {gen_time:.2f}s, {frame_count} frames sent in {message_count} websocket messages (batch_frames={CSM_WS_BATCH_FRAMES})")
             
             await websocket.send_json({"type": "done"})
             

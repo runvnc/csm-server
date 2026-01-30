@@ -39,8 +39,8 @@ WebSocket server for CSM (Conversational Speech Model) TTS with audio context.
 // Session ready
 {"type": "ready", "session_id": "xxx"}
 
-// Audio chunk (160 bytes = 20ms)
-{"type": "audio", "data": "<base64 ulaw 8kHz>"}
+// Audio chunk (base64 ulaw 8kHz; payload size is a multiple of 160 bytes; default batching is up to ~100ms)
+{"type": "audio", "data": "<base64 ulaw 8kHz>", "frame_bytes": 160}
 
 // Generation complete
 {"type": "done"}
@@ -56,6 +56,9 @@ WebSocket server for CSM (Conversational Speech Model) TTS with audio context.
 - `CSM_PORT`: Server port (default: 8765)
 - `CSM_CODEBOOKS`: Number of audio codebooks (default: 32)
 - `CSM_PATH`: Path to csm-streaming code (default: /files/csm-streaming)
+- `CSM_WS_BATCH_MS`: Max time to hold an outgoing audio batch before sending (default: 100)
+- `CSM_WS_BATCH_FRAMES`: Max number of 20ms frames to batch into one websocket message (default derived from CSM_WS_BATCH_MS; typically 5)
+- `CSM_WS_FRAME_BYTES`: Frame size in bytes (default: 160)
 
 ## Running
 
