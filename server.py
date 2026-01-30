@@ -67,6 +67,7 @@ class Session:
         self.speaker_id = 0
         self.user_speaker_id = 1
         self.generating = False
+        self.current_generation_id: Optional[str] = None
         self._generation_task: Optional[asyncio.Task] = None
         self.created_at = time.time()
         
@@ -100,7 +101,7 @@ class Session:
         # Trim context if too long
         self._trim_context()
         
-    async def generate(self, text: str, websocket: WebSocket):
+    async def generate(self, text: str, websocket: WebSocket, generation_id: Optional[str] = None):
         """Generate AI response and stream audio back."""
         global generator
         
@@ -109,6 +110,7 @@ class Session:
             return
             
         self.generating = True
+        self.current_generation_id = generation_id
         logger.info(f"Session {self.session_id}: Generating response for: {text[:50]}...")
         
         try:
@@ -130,11 +132,14 @@ class Session:
                 nonlocal batch_buf, batch_started_at, message_count
                 if not batch_buf:
                     return
-                await websocket.send_json({
+                msg = {
                     "type": "audio",
                     "data": base64.b64encode(bytes(batch_buf)).decode(),
                     "frame_bytes": CSM_WS_FRAME_BYTES
-                })
+                }
+                if generation_id:
+                    msg["generation_id"] = generation_id
+                await websocket.send_json(msg)
                 message_count += 1
                 batch_buf = bytearray()
                 batch_started_at = None
@@ -350,7 +355,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     
             elif msg_type == 'generate':
                 if session:
-                    await session.generate(data['text'], websocket)
+                    generation_id = data.get('generation_id')
+                    await session.generate(data['text'], websocket, generation_id=generation_id)
                     
             elif msg_type == 'interrupt':
                 if session:
